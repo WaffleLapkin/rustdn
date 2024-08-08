@@ -5,7 +5,6 @@ pub trait AnyExt: Sized {
         f(self)
     }
 
-    #[expect(unused)]
     fn also(mut self, f: impl FnOnce(&mut Self)) -> Self {
         f(&mut self);
         self

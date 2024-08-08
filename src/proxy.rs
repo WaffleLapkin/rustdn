@@ -1,13 +1,13 @@
 use std::{
     env::{self, current_dir},
+    ffi::OsString,
     fs,
     io::Read,
     iter,
+    os::unix::ffi::OsStringExt,
     path::{Path, PathBuf},
     process::{self, Command, Stdio},
 };
-
-use itertools::Itertools as _;
 
 use crate::unstd::AnyExt as _;
 
@@ -53,7 +53,10 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
         ToolchainOverride::None
     };
 
-    let shell_path = PathBuf::from(format!("/tmp/rustdn-shell-{:?}.nix", random_bytes::<12>()));
+    let script_path = PathBuf::from(format!(
+        "/tmp/rustdn-build-script-{:?}.nix",
+        random_bytes::<12>()
+    ));
 
     // FIXME: This feels slow, there should be a better way to activate a particular toolchain than
     //        writing a nix-shell to /tmp... We should probably just cleverly set `$PATH`, but I'm
@@ -66,11 +69,7 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
       (import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))
     ];
   }},
-}}:
-pkgs.mkShell {{
-  name = "rustdn";
-  buildInputs = [ (pkgs.rust-bin.{}) ];
-}}
+}}: pkgs.rust-bin.{}
 "#,
         match toolchain {
             ToolchainOverride::File(f) => format!(r#"fromRustupToolchainFile "{}""#, f.display()),
@@ -83,25 +82,43 @@ pkgs.mkShell {{
         }
     );
 
-    fs::write(&shell_path, script).unwrap();
+    fs::write(&script_path, script).unwrap();
 
-    let status = Command::new("nix-shell")
-        .arg(&shell_path)
-        .arg("--run")
-        .arg(
-            [bin.to_owned()]
-                .into_iter()
-                .chain(toolchain_override_or_arg.filter(|_| !toolchain_overridden_from_args))
-                .chain(args)
-                .join(" "),
-        )
+    // FIXME: handle errors from the command
+    let toolchain_path = Command::new("nix-build")
+        .arg(&script_path)
+        .output()
+        .expect("couldn't build rust toolchain") // this only checks for failures to *run* the command
+        .stdout
+        .also(|v| assert_eq!(v.pop(), Some(b'\n')))
+        .apply(OsString::from_vec) // N.B.: unix only
+        .apply(PathBuf::from);
+
+    let bin_path = toolchain_path.also(|p| {
+        p.push("bin");
+        p.push(bin);
+    });
+
+    // FIXME:
+    // we should probably set some env vars, to make sure toolchain doesn't change out of nowhere.
+    // e.g. `cargo build` should use `rustc` from the same toolchain and not accidentally change
+    // toolchains when building a project with a different `rust-toolchain.toml`?
+    let status = Command::new(bin_path)
+        .also(|c| {
+            if !toolchain_overridden_from_args {
+                if let Some(arg) = toolchain_override_or_arg {
+                    c.arg(arg);
+                }
+            }
+        })
+        .args(args)
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
         .status()
         .expect("failed to not fail");
 
-    fs::remove_file(shell_path).unwrap();
+    fs::remove_file(script_path).unwrap();
 
     process::exit(status.code().unwrap_or(0));
 }
