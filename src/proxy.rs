@@ -60,36 +60,26 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
     //        not exactly sure how to find already "installed" toolchains.
 
     let script = format!(
-        r#"{{ pkgs ? import <nixpkgs> {{}} }}:
-let
-  fenix = import (fetchTarball "https://github.com/nix-community/fenix/archive/main.tar.gz") {{ }};
-in
+        r#"{{
+  pkgs ? import <nixpkgs> {{
+    overlays = [
+      (import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))
+    ];
+  }},
+}}:
 pkgs.mkShell {{
   name = "rustdn";
-  buildInputs = [(fenix.{})];
+  buildInputs = [ (pkgs.rust-bin.{}) ];
 }}
 "#,
         match toolchain {
-            ToolchainOverride::File(f) =>
-                format!(r#"fromToolchainFile {{ file = "{}"; }}"#, f.display()),
-
-            ToolchainOverride::Version {
-                channel,
-                version: Some(version),
-            } =>
-            // FIXME: this does not work lol
-                format!(
-                    r#"fromToolchainName {{ name = "{}-{}"; }}"#,
-                    channel.as_str(),
-                    version
-                ),
-            ToolchainOverride::Version {
-                channel,
-                version: None,
-            } =>
-            // FIXME: without the `-` I get an error because it assumes a hash and then it doesn't match??
-                format!(r#"fromToolchainName {{ name = "{}-"; }}"#, channel.as_str(),),
-            ToolchainOverride::None => format!("minimal.toolchain"),
+            ToolchainOverride::File(f) => format!(r#"fromRustupToolchainFile "{}""#, f.display()),
+            ToolchainOverride::Version { channel, version } => format!(
+                r#"{}."{}".default"#,
+                channel.as_str(),
+                version.as_deref().unwrap_or("latest")
+            ),
+            ToolchainOverride::None => format!("stable.latest.default"),
         }
     );
 
