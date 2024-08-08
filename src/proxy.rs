@@ -63,14 +63,8 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
     //        not exactly sure how to find already "installed" toolchains.
 
     let script = format!(
-        r#"{{
-  pkgs ? import <nixpkgs> {{
-    overlays = [
-      (import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))
-    ];
-  }},
-}}: pkgs.rust-bin.{}
-"#,
+        "{}{}",
+        r#"{}: (import <nixpkgs> {overlays = [(import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))];}).rust-bin."#,
         match toolchain {
             ToolchainOverride::File(f) => format!(r#"fromRustupToolchainFile "{}""#, f.display()),
             ToolchainOverride::Version { channel, version } => format!(
