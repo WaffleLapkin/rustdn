@@ -70,6 +70,14 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
     //        some kind of throbber would be nice, to show that *something* is happening,
     //        toolchain is being downloaded
     let toolchain_path = Command::new("nix-build")
+        // Don't create `./result` symlinks.
+        // N.B.: this means that the result of the build does not become a gc root,
+        //       so `nix-store --gc` might delete the toolchain.
+        //       we might want to provide options to deal with it.
+        // IDEA: have a directory like `~/.rustup/toolchains` and use `--out-link` to link the
+        //       results to there. then we can list "installed" toolchains and "uninstalling"
+        //       them becomes a reasonable operation.
+        .arg("--no-out-link")
         .arg("--expr")
         .arg(expr)
         .output()
