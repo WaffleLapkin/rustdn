@@ -85,6 +85,9 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
     fs::write(&script_path, script).unwrap();
 
     // FIXME: handle errors from the command
+    // FIXME: we should report *something* if `nix-build` is running for longer than, say, a second.
+    //        some kind of throbber would be nice, to show that *something* is happening,
+    //        toolchain is being downloaded
     let toolchain_path = Command::new("nix-build")
         .arg(&script_path)
         .output()
