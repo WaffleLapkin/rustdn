@@ -1,8 +1,6 @@
 use std::{
     env::{self, current_dir},
     ffi::OsString,
-    fs,
-    io::Read,
     iter,
     os::unix::ffi::OsStringExt,
     path::{Path, PathBuf},
@@ -53,16 +51,7 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
         ToolchainOverride::None
     };
 
-    let script_path = PathBuf::from(format!(
-        "/tmp/rustdn-build-script-{:?}.nix",
-        random_bytes::<12>()
-    ));
-
-    // FIXME: This feels slow, there should be a better way to activate a particular toolchain than
-    //        writing a nix-shell to /tmp... We should probably just cleverly set `$PATH`, but I'm
-    //        not exactly sure how to find already "installed" toolchains.
-
-    let script = format!(
+    let expr = format!(
         "{}{}",
         r#"{}: (import <nixpkgs> {overlays = [(import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))];}).rust-bin."#,
         match toolchain {
@@ -76,14 +65,13 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
         }
     );
 
-    fs::write(&script_path, script).unwrap();
-
     // FIXME: handle errors from the command
     // FIXME: we should report *something* if `nix-build` is running for longer than, say, a second.
     //        some kind of throbber would be nice, to show that *something* is happening,
     //        toolchain is being downloaded
     let toolchain_path = Command::new("nix-build")
-        .arg(&script_path)
+        .arg("--expr")
+        .arg(expr)
         .output()
         .expect("couldn't build rust toolchain") // this only checks for failures to *run* the command
         .stdout
@@ -114,8 +102,6 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
         .stdout(Stdio::inherit())
         .status()
         .expect("failed to not fail");
-
-    fs::remove_file(script_path).unwrap();
 
     process::exit(status.code().unwrap_or(0));
 }
@@ -203,17 +189,6 @@ fn find_toolchain_file() -> Result<Option<ToolchainOverride>, ()> {
         .map(PathBuf::into_boxed_path)
         .map(ToolchainOverride::File)
         .apply(Ok)
-}
-
-fn random_bytes<const N: usize>() -> [u8; N] {
-    let mut rnd = [0; N];
-
-    fs::File::open("/dev/urandom")
-        .unwrap()
-        .read_exact(&mut rnd)
-        .unwrap();
-
-    rnd
 }
 
 #[cfg(test)]
