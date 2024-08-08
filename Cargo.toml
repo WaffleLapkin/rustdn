@@ -1,0 +1,11 @@
+[package]
+name = "rustdn"
+version = "0.1.0"
+edition = "2021"
+license-file = "LICENSE.md"
+
+[dependencies]
+# Using itertools just for `join` doesn't seem right :/
+itertools = { version = "0.13.0", default-features = false, features = [
+    "use_alloc",
+] }
