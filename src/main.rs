@@ -7,6 +7,8 @@ mod unstd;
 fn main() {
     use std::{env, ffi::OsStr, path::Path};
 
+    setup_tracing();
+
     let mut args = env::args();
 
     let arg0 = args.next();
@@ -26,4 +28,22 @@ fn main() {
         // Edge-case: no arg0 (or it's last part is not utf-8!)
         None => panic!("No arg0?"),
     }
+}
+
+fn setup_tracing() {
+    use tracing::level_filters::LevelFilter;
+    use tracing_subscriber::{layer::SubscriberExt as _, EnvFilter, Layer as _, Registry};
+
+    let logger = tracing_subscriber::fmt::layer()
+        .with_writer(move || std::io::stderr())
+        .with_ansi(true);
+
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .parse_lossy(std::env::var("RUSTDN_LOG").as_deref().unwrap_or(""));
+
+    let console_logger = logger.compact().with_filter(env_filter).boxed();
+    let subscriber = Registry::default().with(console_logger);
+
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 }

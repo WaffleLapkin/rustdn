@@ -7,6 +7,8 @@ use std::{
     process::{self, Command, Stdio},
 };
 
+use tracing::{debug, trace};
+
 use crate::unstd::AnyExt as _;
 
 /// Entry point for command proxies.
@@ -35,6 +37,8 @@ use crate::unstd::AnyExt as _;
 /// [^1]: if the first argument in `args` starts with `+` it is treated as a toolchain override and
 ///       is not passed to the `bin`
 pub(super) fn main(bin: &str, mut args: env::Args) {
+    trace!("proxying {bin}");
+
     let toolchain_override_or_arg = args.next();
     let mut toolchain_overridden_from_args = false;
 
@@ -51,6 +55,8 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
         ToolchainOverride::None
     };
 
+    debug!("toolchain override is {toolchain:?}");
+
     let expr = format!(
         "{}{}",
         r#"{}: (import <nixpkgs> {overlays = [(import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))];}).rust-bin."#,
@@ -64,6 +70,8 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
             ToolchainOverride::None => format!("stable.latest.default"),
         }
     );
+
+    debug!("starting nix-build");
 
     // FIXME: handle errors from the command
     // FIXME: we should report *something* if `nix-build` is running for longer than, say, a second.
@@ -87,10 +95,14 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
         .apply(OsString::from_vec) // N.B.: unix only
         .apply(PathBuf::from);
 
+    debug!("starting nix-build finished");
+
     let bin_path = toolchain_path.also(|p| {
         p.push("bin");
         p.push(bin);
     });
+
+    debug!("starting {bin_path:?}");
 
     // FIXME:
     // we should probably set some env vars, to make sure toolchain doesn't change out of nowhere.
@@ -110,6 +122,8 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
         .stdout(Stdio::inherit())
         .status()
         .expect("failed to not fail");
+
+    debug!("binary finished");
 
     process::exit(status.code().unwrap_or(0));
 }
