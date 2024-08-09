@@ -1,12 +1,16 @@
+use core::{fmt, slice};
 use std::{
     env::{self, current_dir},
     ffi::OsString,
-    iter,
-    os::unix::ffi::OsStringExt,
+    fs, iter,
+    ops::Deref,
     path::{Path, PathBuf},
     process::{self, Command, Stdio},
+    str, thread,
+    time::Duration,
 };
 
+use file_guard::{os::unix::FileGuardExt, FileGuard, Lock};
 use tracing::{debug, trace};
 
 use crate::unstd::AnyExt as _;
@@ -57,50 +61,106 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
 
     debug!("toolchain override is {toolchain:?}");
 
-    let expr = format!(
-        "{}{}",
-        r#"{}: (import <nixpkgs> {overlays = [(import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))];}).rust-bin."#,
-        match toolchain {
-            ToolchainOverride::File(f) => format!(r#"fromRustupToolchainFile "{}""#, f.display()),
-            ToolchainOverride::Version { channel, version } => format!(
-                r#"{}."{}".default"#,
-                channel.as_str(),
-                version.as_deref().unwrap_or("latest")
-            ),
-            ToolchainOverride::None => format!("stable.latest.default"),
+    let toolchain_key = toolchain.key();
+
+    let toolchain_dir = dirs::home_dir()
+        .unwrap()
+        .join(".rustdn/toolchains")
+        .join(toolchain_key);
+
+    fs::create_dir_all(&toolchain_dir).unwrap();
+
+    let lock = fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(toolchain_dir.join("lock"))
+        .unwrap();
+
+    debug!("starting looking for the toolchain");
+
+    loop {
+        let mut guard = file_guard::lock(&lock, Lock::Shared, 0, 1024).unwrap();
+
+        if toolchain.cache_is_valid(&toolchain_dir, &guard) {
+            // we are free
+            break;
         }
-    );
 
-    debug!("starting nix-build");
+        if let Err(e) = guard.upgrade() {
+            // Deadlock is 30
+            // FIXME: use the actual `io::ErrorKind::Deadlock` (once it's stabilized or w/e)
+            if e.kind() as u32 == 30 {
+                // Deadlock error is returned when multiple readers are trying to upgrade.
+                // Retry after a small delay to let one the other processes trying to upgrade, upgrade.
+                thread::sleep(Duration::from_secs_f32(0.1));
+                continue;
+            }
 
-    // FIXME: handle errors from the command
-    // FIXME: we should report *something* if `nix-build` is running for longer than, say, a second.
-    //        some kind of throbber would be nice, to show that *something* is happening,
-    //        toolchain is being downloaded
-    let toolchain_path = Command::new("nix-build")
-        // Don't create `./result` symlinks.
-        // N.B.: this means that the result of the build does not become a gc root,
-        //       so `nix-store --gc` might delete the toolchain.
-        //       we might want to provide options to deal with it.
-        // IDEA: have a directory like `~/.rustup/toolchains` and use `--out-link` to link the
-        //       results to there. then we can list "installed" toolchains and "uninstalling"
-        //       them becomes a reasonable operation.
-        .arg("--no-out-link")
-        .arg("--expr")
-        .arg(expr)
-        .output()
-        .expect("couldn't build rust toolchain") // this only checks for failures to *run* the command
-        .stdout
-        .also(|v| assert_eq!(v.pop(), Some(b'\n')))
-        .apply(OsString::from_vec) // N.B.: unix only
-        .apply(PathBuf::from);
+            Err::<(), _>(e).unwrap();
+        }
 
-    debug!("starting nix-build finished");
+        // We are in exclusive possession of this toolchain.
+        // Try to update it to be up to date.
+        assert!(guard.is_exclusive());
 
-    let bin_path = toolchain_path.also(|p| {
-        p.push("bin");
-        p.push(bin);
-    });
+        let expr = format!(
+            "{}{}",
+            r#"{}: (import <nixpkgs> {overlays = [(import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))];}).rust-bin."#,
+            match &toolchain {
+                ToolchainOverride::File(f) =>
+                    format!(r#"fromRustupToolchainFile "{}""#, f.display()),
+                ToolchainOverride::Version { channel, version } => format!(
+                    r#"{}."{}".default"#,
+                    channel.as_str(),
+                    version.as_deref().unwrap_or("latest")
+                ),
+                ToolchainOverride::None => format!("stable.latest.default"),
+            }
+        );
+
+        debug!("starting nix-build");
+
+        // FIXME: handle errors from the command
+        // FIXME: we should report *something* if `nix-build` is running for longer than, say, a second.
+        //        some kind of throbber would be nice, to show that *something* is happening,
+        //        toolchain is being downloaded
+        Command::new("nix-build")
+            // Don't create `./result` symlinks.
+            // N.B.: this means that the result of the build does not become a gc root,
+            //       so `nix-store --gc` might delete the toolchain.
+            //       we might want to provide options to deal with it.
+            // IDEA: have a directory like `~/.rustup/toolchains` and use `--out-link` to link the
+            //       results to there. then we can list "installed" toolchains and "uninstalling"
+            //       them becomes a reasonable operation.
+            .arg("--out-link")
+            .arg(toolchain_dir.join("toolchain"))
+            .arg("--expr")
+            .arg(expr)
+            .output()
+            .expect("couldn't build rust toolchain") // this only checks for failures to *run* the command
+            .also(|o| _ = dbg!(String::from_utf8_lossy(&o.stderr)));
+
+        debug!("starting nix-build finished");
+
+        match &toolchain {
+            ToolchainOverride::File(p) => {
+                fs::copy(p, toolchain_dir.join("rust-toolchain.toml")).unwrap();
+            }
+            ToolchainOverride::None => break,
+            _ => (),
+        }
+    }
+
+    debug!("toolchain found");
+
+    let bin_path = toolchain_dir
+        // symlink to the toolchain in the nix store (or just *somewhere* in case of local toolchains)
+        .join("toolchain")
+        // directory with the binaries
+        .join("bin")
+        // the binary itself
+        .join(bin);
 
     debug!("starting {bin_path:?}");
 
@@ -141,6 +201,58 @@ enum ToolchainOverride {
     //LocalName(String),
 }
 
+impl ToolchainOverride {
+    fn key(&self) -> OsString {
+        match self {
+            ToolchainOverride::File(f) => {
+                let mut key = OsString::from("file-");
+
+                // FIXME: figure out an encoding for paths which is less cursed
+
+                const ESC: u8 = 0x10;
+                f.as_os_str().as_encoded_bytes().iter().for_each(|&b| {
+                    if b.is_ascii() && b != ESC && b != b'/' {
+                        key.push(str::from_utf8(slice::from_ref(&b)).unwrap())
+                    } else {
+                        key.push(format!("\x10{b:x}"))
+                    }
+                });
+
+                key
+            }
+            ToolchainOverride::Version {
+                channel,
+                version: Some(version),
+            } => format!("external-{channel}-{version}").into(),
+            ToolchainOverride::Version {
+                channel,
+                version: None,
+            } => format!("external-{channel}").into(),
+            ToolchainOverride::None => "default".to_owned().into(),
+        }
+    }
+
+    fn cache_is_valid(
+        &self,
+        path: &Path,
+        _guard: &FileGuard<impl Deref<Target = fs::File>>,
+    ) -> bool {
+        match self {
+            ToolchainOverride::File(current) => {
+                let current_contents = fs::read(current).unwrap();
+                let Ok(cached_contents) = fs::read(path.join("rust-toolchain.toml")) else {
+                    return false;
+                };
+
+                current_contents == cached_contents
+            }
+            ToolchainOverride::Version { version, .. } => version.is_some(),
+
+            ToolchainOverride::None => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 enum Channel {
@@ -156,6 +268,12 @@ impl Channel {
             Channel::Beta => "beta",
             Channel::Nightly => "nightly",
         }
+    }
+}
+
+impl fmt::Display for Channel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
