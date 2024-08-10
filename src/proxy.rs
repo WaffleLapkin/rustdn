@@ -2,7 +2,9 @@ use core::{fmt, slice};
 use std::{
     env::{self, current_dir},
     ffi::OsString,
-    fs, iter,
+    fs,
+    io::{stderr, Write as _},
+    iter,
     ops::{ControlFlow, Deref},
     os::unix::process::CommandExt as _,
     path::{Path, PathBuf},
@@ -127,11 +129,10 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
 
         debug!("starting nix-build");
 
-        // FIXME: handle errors from the command
         // FIXME: we should report *something* if `nix-build` is running for longer than, say, a second.
         //        some kind of throbber would be nice, to show that *something* is happening,
         //        toolchain is being downloaded
-        Command::new("nix-build")
+        let output = Command::new("nix-build")
             // Don't create `./result` symlinks.
             // N.B.: this means that the result of the build does not become a gc root,
             //       so `nix-store --gc` might delete the toolchain.
@@ -144,8 +145,21 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
             .arg("--expr")
             .arg(expr)
             .output()
-            .expect("couldn't build rust toolchain") // this only checks for failures to *run* the command
-            .also(|o| _ = dbg!(String::from_utf8_lossy(&o.stderr)));
+            .expect("couldn't start `nix-build` to build rust toolchain");
+
+        // Very important: fail if `nix-build` failed.
+        // This *must* happen before we commit to the cache,
+        // since otherwise we might create an invalid cache and go insane.
+        if !output.status.success() {
+            eprintln!("`nix-build` failed:");
+            stderr().write_all(&output.stderr).unwrap();
+
+            // Just to be safe (and, well, correct for non-file toolchains),
+            // remove the cache entirely.
+            fs::remove_dir_all(toolchain_dir).unwrap();
+
+            process::exit(output.status.code().unwrap_or(1));
+        }
 
         debug!("starting nix-build finished");
 
