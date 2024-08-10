@@ -95,6 +95,9 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
             if e.kind() as u32 == 30 {
                 // Deadlock error is returned when multiple readers are trying to upgrade.
                 // Retry after a small delay to let one the other processes trying to upgrade, upgrade.
+                // FIXME: we might need to sleep a random amount of time,
+                //        *if `Deadlock` is returned to all the processes*,
+                //        so that one of them has a chance to get an exclusive lock.
                 thread::sleep(Duration::from_secs_f32(0.1));
                 continue;
             }
