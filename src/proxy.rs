@@ -82,7 +82,9 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
     loop {
         let mut guard = file_guard::lock(&lock, Lock::Shared, 0, 1024).unwrap();
 
-        if toolchain.cache_is_valid(&toolchain_dir, &guard) {
+        if toolchain_dir.join("toolchain").exists()
+            && toolchain.cache_is_valid(&toolchain_dir, &guard)
+        {
             // we are free
             break;
         }
@@ -232,6 +234,19 @@ impl ToolchainOverride {
         }
     }
 
+    /// Returns `true` if the cached version of the toolchain for this override can be trusted.
+    /// Or, in other words, that the toolchain version can be solely determined on input
+    /// parameters/cache key, so the cached version can't change.
+    ///
+    /// For [`File`] this checks if the toolchain file we used before is exactly the same as the current one.
+    /// For [`Version`] this checks that [`Version::version`] is specified.
+    /// [`None`] can never depend on cache.
+    ///
+    /// [`File`]: ToolchainOverride::File
+    /// [`Version`]: ToolchainOverride::Version
+    /// [`Version::version`]: ToolchainOverride::Version::version
+    ///
+    /// **N.B.**: you still need to check that the cache actually exists.
     fn cache_is_valid(
         &self,
         path: &Path,
@@ -246,8 +261,13 @@ impl ToolchainOverride {
 
                 current_contents == cached_contents
             }
+
             ToolchainOverride::Version { version, .. } => version.is_some(),
 
+            // FIXME: If we could force somehow that update of the default toolchain causes the
+            //        `toolchains/default` cache to be deleted, then we could actually trust this
+            //        (and similarly for version-less version spec).
+            //        Jono says it's possible, but I'm not sure how.
             ToolchainOverride::None => false,
         }
     }
