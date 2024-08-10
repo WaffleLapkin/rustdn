@@ -3,7 +3,7 @@ use std::{
     env::{self, current_dir},
     ffi::OsString,
     fs, iter,
-    ops::Deref,
+    ops::{ControlFlow, Deref},
     path::{Path, PathBuf},
     process::{self, Command, Stdio},
     str, thread,
