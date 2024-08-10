@@ -145,12 +145,8 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
 
         debug!("starting nix-build finished");
 
-        match &toolchain {
-            ToolchainOverride::File(p) => {
-                fs::copy(p, toolchain_dir.join("rust-toolchain.toml")).unwrap();
-            }
-            ToolchainOverride::None => break,
-            _ => (),
+        if let ControlFlow::Break(()) = toolchain.commit_cache(&toolchain_dir, &mut guard) {
+            break;
         }
     }
 
@@ -204,6 +200,8 @@ enum ToolchainOverride {
 }
 
 impl ToolchainOverride {
+    // N.B. all function here must agree with each other.
+
     fn key(&self) -> OsString {
         match self {
             ToolchainOverride::File(f) => {
@@ -269,6 +267,33 @@ impl ToolchainOverride {
             //        (and similarly for version-less version spec).
             //        Jono says it's possible, but I'm not sure how.
             ToolchainOverride::None => false,
+        }
+    }
+
+    /// Commits the new toolchain to cache.
+    ///
+    /// Returns [`ControlFlow::Continue`] if the cache should be re-checked.
+    /// Returns [`ControlFlow::Break`] if the cache mustn't be rechecked.
+    fn commit_cache(
+        &self,
+        toolchain_dir: &PathBuf,
+        guard: &mut FileGuard<impl Deref<Target = fs::File>>,
+    ) -> ControlFlow<()> {
+        assert!(guard.is_exclusive());
+
+        match self {
+            ToolchainOverride::File(p) => {
+                fs::copy(p, toolchain_dir.join("rust-toolchain.toml")).unwrap();
+                ControlFlow::Continue(())
+            }
+            ToolchainOverride::Version {
+                version: Some(_), ..
+            } => ControlFlow::Continue(()),
+
+            // These never say that the cache is valid, so there is no reason to re-check it after `nix-build`
+            ToolchainOverride::None | ToolchainOverride::Version { version: None, .. } => {
+                ControlFlow::Break(())
+            }
         }
     }
 }
