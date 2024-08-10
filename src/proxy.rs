@@ -4,6 +4,7 @@ use std::{
     ffi::OsString,
     fs, iter,
     ops::{ControlFlow, Deref},
+    os::unix::process::CommandExt as _,
     path::{Path, PathBuf},
     process::{self, Command, Stdio},
     str, thread,
@@ -169,7 +170,7 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
     // we should probably set some env vars, to make sure toolchain doesn't change out of nowhere.
     // e.g. `cargo build` should use `rustc` from the same toolchain and not accidentally change
     // toolchains when building a project with a different `rust-toolchain.toml`?
-    let status = Command::new(bin_path)
+    let error = Command::new(&bin_path)
         .also(|c| {
             if !toolchain_overridden_from_args {
                 if let Some(arg) = toolchain_override_or_arg {
@@ -181,12 +182,9 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
-        .status()
-        .expect("failed to not fail");
+        .exec();
 
-    debug!("binary finished");
-
-    process::exit(status.code().unwrap_or(0));
+    panic!("couldn't execute {bin_path:?}: {error}");
 }
 
 #[derive(Debug)]
