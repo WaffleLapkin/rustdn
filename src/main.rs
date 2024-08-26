@@ -1,3 +1,4 @@
+mod lock;
 mod proxy;
 mod rustdn;
 mod unstd;

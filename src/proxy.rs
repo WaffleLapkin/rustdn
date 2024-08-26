@@ -13,10 +13,12 @@ use std::{
     time::Duration,
 };
 
-use file_guard::{os::unix::FileGuardExt, FileGuard, Lock};
 use tracing::{debug, trace};
 
-use crate::unstd::AnyExt as _;
+use crate::{
+    lock::{Exclusive, Lock},
+    unstd::AnyExt as _,
+};
 
 /// Entry point for command proxies.
 ///
@@ -73,7 +75,7 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
 
     fs::create_dir_all(&toolchain_dir).unwrap();
 
-    let lock = fs::File::options()
+    let lock_file = fs::File::options()
         .read(true)
         .write(true)
         .create(true)
@@ -83,34 +85,28 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
     debug!("starting looking for the toolchain");
 
     loop {
-        let mut guard = file_guard::lock(&lock, Lock::Shared, 0, 1024).unwrap();
+        let lock = crate::lock::lock_shared(&lock_file).unwrap();
 
         if toolchain_dir.join("toolchain").exists()
-            && toolchain.cache_is_valid(&toolchain_dir, &guard)
+            && toolchain.cache_is_valid(&toolchain_dir, &lock)
         {
             // we are free
             break;
         }
 
-        if let Err(e) = guard.upgrade() {
-            // Deadlock is 30
-            // FIXME: use the actual `io::ErrorKind::Deadlock` (once it's stabilized or w/e)
-            if e.kind() as u32 == 30 {
-                // Deadlock error is returned when multiple readers are trying to upgrade.
-                // Retry after a small delay to let one the other processes trying to upgrade, upgrade.
-                // FIXME: we might need to sleep a random amount of time,
-                //        *if `Deadlock` is returned to all the processes*,
-                //        so that one of them has a chance to get an exclusive lock.
+        let mut lock = match lock.upgrade() {
+            Ok(l) => l,
+            Err(e) if e == rustix::io::Errno::DEADLK => {
+                // DEADLK error is returned when multiple readers are trying to upgrade.
+                // it's returned to all, but one, processes.
+
+                // a small delay to make sure the one process that didn't get the error can actually get an exclusive lock.
+                // this is likely unnecessary, but since updates usually take much more than a second, this is fine to leave.
                 thread::sleep(Duration::from_secs_f32(0.1));
                 continue;
             }
-
-            Err::<(), _>(e).unwrap();
-        }
-
-        // We are in exclusive possession of this toolchain.
-        // Try to update it to be up to date.
-        assert!(guard.is_exclusive());
+            e => e.unwrap(),
+        };
 
         let expr = format!(
             "{}{}",
@@ -163,7 +159,7 @@ pub(super) fn main(bin: &str, mut args: env::Args) {
 
         debug!("starting nix-build finished");
 
-        if let ControlFlow::Break(()) = toolchain.commit_cache(&toolchain_dir, &mut guard) {
+        if let ControlFlow::Break(()) = toolchain.commit_cache(&toolchain_dir, &mut lock) {
             break;
         }
     }
@@ -263,7 +259,7 @@ impl ToolchainOverride {
     fn cache_is_valid(
         &self,
         path: &Path,
-        _guard: &FileGuard<impl Deref<Target = fs::File>>,
+        _lock: &Lock<impl Deref<Target = fs::File>, impl Sized>,
     ) -> bool {
         match self {
             ToolchainOverride::File(current) => {
@@ -292,10 +288,8 @@ impl ToolchainOverride {
     fn commit_cache(
         &self,
         toolchain_dir: &PathBuf,
-        guard: &mut FileGuard<impl Deref<Target = fs::File>>,
+        _lock: &mut Lock<impl Deref<Target = fs::File>, Exclusive>,
     ) -> ControlFlow<()> {
-        assert!(guard.is_exclusive());
-
         match self {
             ToolchainOverride::File(p) => {
                 fs::copy(p, toolchain_dir.join("rust-toolchain.toml")).unwrap();

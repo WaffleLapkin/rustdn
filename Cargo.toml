@@ -8,4 +8,7 @@ license-file = "LICENSE.md"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 dirs = "5.0.1"
-file-guard = "0.2.0"
+rustix = { version = "0.38.34", default-features = false, features = [
+    "fs",
+    "std",
+] }
