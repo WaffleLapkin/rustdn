@@ -1,6 +1,7 @@
 mod lock;
 mod proxy;
 mod rustdn;
+mod toolchain;
 mod unstd;
 
 // FIXME: add actual error handling
