@@ -1,16 +1,18 @@
 //! Toolchain management.
 
-use core::{fmt, slice};
+use core::{fmt, slice, str};
 use std::{
     env::current_dir,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs,
     io::{stderr, Write as _},
     iter,
     ops::{ControlFlow, Deref},
+    os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     process::{self, Command},
-    str, thread,
+    str::FromStr,
+    thread,
     time::Duration,
 };
 
@@ -158,6 +160,8 @@ impl ToolchainOverride {
 
                 key
             }
+            // FIXME: use different keys for channel and channel+version
+            //        (channel should be a "global" key?)
             ToolchainOverride::Version {
                 channel,
                 version: Some(version),
@@ -168,6 +172,69 @@ impl ToolchainOverride {
             } => format!("external-{channel}").into(),
             ToolchainOverride::None => "default".to_owned().into(),
         }
+    }
+
+    pub fn from_key(k: OsString) -> Option<Self> {
+        if let Some(mut encoded_path) = k.as_bytes().strip_prefix(b"file-") {
+            const ESC: u8 = 0x10;
+            const SEP: u8 = b'/';
+
+            let mut path = PathBuf::new();
+            let mut buf = Vec::new();
+
+            loop {
+                match encoded_path {
+                    &[ESC, a, b, ref rest @ ..] => {
+                        let x = u8::from_str_radix(str::from_utf8(&[a, b]).ok()?, 16).ok()?;
+
+                        match x {
+                            ESC => buf.push(x),
+                            SEP => {
+                                path.push(OsStr::from_bytes(&buf));
+                                buf.clear();
+                            }
+                            _ => return None,
+                        }
+                        encoded_path = rest;
+                    }
+                    &[ESC, ..] => return None,
+                    &[fst, ref rest @ ..] => {
+                        buf.push(fst);
+                        encoded_path = rest;
+                    }
+                    [] => break,
+                }
+            }
+
+            if !buf.is_empty() {
+                path.push(OsStr::from_bytes(&buf));
+                drop(buf);
+            }
+
+            return Some(Self::File(path.into_boxed_path()));
+        }
+
+        if let Some(rest) = k.as_bytes().strip_prefix(b"external-") {
+            let rest = str::from_utf8(rest).ok()?;
+            let toolchain = match rest.split_once("-") {
+                Some((channel, version)) => ToolchainOverride::Version {
+                    channel: channel.parse().ok()?,
+                    version: Some(version.to_owned()),
+                },
+                None => ToolchainOverride::Version {
+                    channel: rest.parse().ok()?,
+                    version: None,
+                },
+            };
+
+            return Some(toolchain);
+        }
+
+        if k.as_bytes() == b"default" {
+            return Some(ToolchainOverride::None);
+        }
+
+        None
     }
 
     /// Returns `true` if the cached version of the toolchain for this override can be trusted.
@@ -248,6 +315,19 @@ impl Channel {
             Channel::Stable => "stable",
             Channel::Beta => "beta",
             Channel::Nightly => "nightly",
+        }
+    }
+}
+
+impl FromStr for Channel {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "stable" => Ok(Channel::Stable),
+            "beta" => Ok(Channel::Beta),
+            "nightly" => Ok(Channel::Nightly),
+            _ => Err(()),
         }
     }
 }

@@ -1,4 +1,6 @@
-use std::env;
+use std::{env, fs};
+
+use crate::toolchain::ToolchainOverride;
 
 /// `rustdn` command entry point.
 ///
@@ -28,7 +30,53 @@ use std::env;
 /// - A command to remove a toolchain from the nix cache?
 /// - `check` - check for updates
 ///
-pub(super) fn main(args: env::Args) {
-    _ = args;
-    unimplemented!()
+pub(super) fn main(mut args: env::Args) {
+    if args.next().as_deref() == Some("toolchain") {
+        toolchain(args);
+    } else {
+        unimplemented!()
+    }
+}
+
+fn toolchain(mut args: env::Args) {
+    if args.next().as_deref() == Some("list") {
+        let toolchains_dir = dirs::home_dir().unwrap().join(".rustdn/toolchains");
+
+        let dir = fs::read_dir(&toolchains_dir).unwrap();
+        let mut toolchains = Vec::new();
+
+        for res in dir {
+            match res {
+                Ok(entry) => {
+                    let name = entry.file_name();
+                    if let Some(toolchain) = ToolchainOverride::from_key(name) {
+                        toolchains.push(toolchain);
+                    }
+                    // FIXME: log if there is a non-toolchain file?
+                }
+                Err(err) => eprintln!(
+                    "error while reading `{}` directory: {err}",
+                    toolchains_dir.display()
+                ),
+            }
+        }
+
+        for toolchain in toolchains {
+            // FIXME: figure out the actual toolchain versions, somehow
+            match toolchain {
+                ToolchainOverride::File(p) => println!("{} (???)", p.display()),
+                ToolchainOverride::Version {
+                    channel,
+                    version: Some(version),
+                } => println!("{channel}-{version}"),
+                ToolchainOverride::Version {
+                    channel,
+                    version: None,
+                } => println!("{channel} (???)"),
+                ToolchainOverride::None => println!("default (???)"),
+            };
+        }
+    } else {
+        unimplemented!()
+    }
 }
