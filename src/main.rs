@@ -5,6 +5,7 @@ mod toolchain;
 mod unstd;
 
 // FIXME: add actual error handling
+// FIXME: meow meow meow mrrrmph~!
 
 fn main() {
     use std::{env, ffi::OsStr, path::Path};
