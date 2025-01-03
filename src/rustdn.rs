@@ -31,11 +31,31 @@ use crate::toolchain::ToolchainOverride;
 /// - `check` - check for updates
 ///
 pub(super) fn main(mut args: env::Args) {
-    if args.next().as_deref() == Some("toolchain") {
+    let arg = args.next();
+    let arg = arg.as_deref();
+
+    if arg == Some("toolchain") {
         toolchain(args);
+    } else if arg == Some("--version") {
+        version();
     } else {
         unimplemented!()
     }
+}
+
+fn version() {
+    // Fetch VCS info from the build script
+    // (you can override these by setting them during build)
+    const COMMIT_ABBR: &str = env!("VCS_COMMIT_ABBR");
+    const COMMIT_FULL: &str = env!("VCS_COMMIT_FULL");
+    const COMMIT_DATE: &str = env!("VCS_COMMIT_DATE");
+
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+    println!("rustdn {VERSION} ({COMMIT_ABBR} {COMMIT_DATE})");
+
+    // FIXME: --verbose
+    _ = COMMIT_FULL;
 }
 
 fn toolchain(mut args: env::Args) {
