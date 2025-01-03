@@ -11,8 +11,9 @@ fn main() {
     use std::{env, ffi::OsStr, path::Path};
 
     setup_tracing();
+    tracing::trace!("meow");
 
-    let mut args = env::args();
+    let mut args = env::args_os();
 
     let arg0 = args.next();
     let bin = arg0

@@ -338,12 +338,9 @@ impl fmt::Display for Channel {
     }
 }
 
-pub fn parse_toolchain_override(s: Option<&str>) -> Result<Option<ToolchainOverride>, ()> {
+pub fn parse_toolchain_override(s: Option<&OsStr>) -> Result<Option<ToolchainOverride>, ()> {
+    let s = s.and_then(|s| s.to_str()).and_then(|s| s.strip_prefix('+'));
     let Some(s) = s else { return Ok(None) };
-
-    let Some(s) = s.strip_prefix('+') else {
-        return Ok(None);
-    };
 
     if let Some(s) = s.strip_prefix("stable") {
         let version = parse_toolchain_version(s)?;

@@ -38,7 +38,7 @@ use crate::{
 ///
 /// [^1]: if the first argument in `args` starts with `+` it is treated as a toolchain override and
 ///       is not passed to the `bin`
-pub(super) fn main(bin: &str, mut args: env::Args) {
+pub(super) fn main(bin: &str, mut args: env::ArgsOs) {
     trace!("proxying {bin}");
 
     let toolchain_override_or_arg = args.next();
