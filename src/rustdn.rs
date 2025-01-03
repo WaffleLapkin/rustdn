@@ -1,5 +1,7 @@
 use std::{env, fs};
 
+use tracing::warn;
+
 use crate::toolchain::ToolchainOverride;
 
 /// `rustdn` command entry point.
@@ -71,8 +73,9 @@ fn toolchain(mut args: env::Args) {
                     let name = entry.file_name();
                     if let Some(toolchain) = ToolchainOverride::from_key(name) {
                         toolchains.push(toolchain);
+                    } else {
+                        warn!("non-toolchain file: {}", entry.path().display());
                     }
-                    // FIXME: log if there is a non-toolchain file?
                 }
                 Err(err) => eprintln!(
                     "error while reading `{}` directory: {err}",
