@@ -17,6 +17,8 @@ impl<T> AnyExt for T {}
 ///
 /// Importantly, this works with types which implement `Drop` (ofc, this doesn't run the destructor).
 // FIXME: move this to its own crate
+//        upd: even better, there is now an RFC to add it to rust:
+//             <https://github.com/rust-lang/rfcs/pull/3738>!!
 #[macro_export]
 macro_rules! destructure {
     ($Type:ident { $($f:tt $(: $rename:pat)? ),+ $(,)? } = $e:expr) => (
