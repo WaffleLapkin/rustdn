@@ -1,4 +1,6 @@
-use color_eyre::eyre::{self, Context};
+use std::env;
+
+use color_eyre::eyre::{self, bail, Context};
 use tracing_subscriber::fmt::time::Uptime;
 
 mod lock;
@@ -41,9 +43,17 @@ fn setup_tracing() -> eyre::Result<()> {
     use tracing::level_filters::LevelFilter;
     use tracing_subscriber::{layer::SubscriberExt as _, EnvFilter, Layer as _, Registry};
 
+    let rustdn_log = match std::env::var("RUSTDN_LOG") {
+        Ok(v) => v,
+        Err(env::VarError::NotPresent) => <_>::default(),
+        Err(env::VarError::NotUnicode(contents)) => {
+            bail!("$RUSTDN_LOG contains non-unicode symbols: {contents:?}")
+        }
+    };
+
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
-        .parse(std::env::var("RUSTDN_LOG").as_deref().unwrap_or(""))
+        .parse(rustdn_log)
         .wrap_err("couldn't parse $RUSTDN_LOG")?;
 
     let console_logger = tracing_subscriber::fmt::layer()
