@@ -342,28 +342,32 @@ pub fn parse_toolchain_override(s: Option<&OsStr>) -> Result<Option<ToolchainOve
     let s = s.and_then(|s| s.to_str()).and_then(|s| s.strip_prefix('+'));
     let Some(s) = s else { return Ok(None) };
 
+    parse_toolchain_name(s).map(Some)
+}
+
+pub fn parse_toolchain_name(s: &str) -> Result<ToolchainOverride, ()> {
     if let Some(s) = s.strip_prefix("stable") {
         let version = parse_toolchain_version(s)?;
-        return Ok(Some(ToolchainOverride::Version {
+        return Ok(ToolchainOverride::Version {
             channel: Channel::Stable,
             version,
-        }));
+        });
     }
 
     if let Some(s) = s.strip_prefix("beta") {
         let version = parse_toolchain_version(s)?;
-        return Ok(Some(ToolchainOverride::Version {
+        return Ok(ToolchainOverride::Version {
             channel: Channel::Beta,
             version,
-        }));
+        });
     }
 
     if let Some(s) = s.strip_prefix("nightly") {
         let version = parse_toolchain_version(s)?;
-        return Ok(Some(ToolchainOverride::Version {
+        return Ok(ToolchainOverride::Version {
             channel: Channel::Nightly,
             version,
-        }));
+        });
     }
 
     // Invalid toolchain override specification
