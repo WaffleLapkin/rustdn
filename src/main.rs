@@ -1,3 +1,5 @@
+use tracing_subscriber::fmt::time::Uptime;
+
 mod lock;
 mod proxy;
 mod rustdn;
@@ -37,15 +39,18 @@ fn setup_tracing() {
     use tracing::level_filters::LevelFilter;
     use tracing_subscriber::{layer::SubscriberExt as _, EnvFilter, Layer as _, Registry};
 
-    let logger = tracing_subscriber::fmt::layer()
-        .with_writer(move || std::io::stderr())
-        .with_ansi(true);
-
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
-        .parse_lossy(std::env::var("RUSTDN_LOG").as_deref().unwrap_or(""));
+        .parse(std::env::var("RUSTDN_LOG").as_deref().unwrap_or(""))
+        .expect("couldn't parse $RUSTDN_LOG");
 
-    let console_logger = logger.compact().with_filter(env_filter).boxed();
+    let console_logger = tracing_subscriber::fmt::layer()
+        .with_writer(move || std::io::stderr())
+        .with_timer(Uptime::default())
+        .with_ansi(true)
+        .compact()
+        .with_filter(env_filter);
+
     let subscriber = Registry::default().with(console_logger);
 
     tracing::subscriber::set_global_default(subscriber).unwrap();
