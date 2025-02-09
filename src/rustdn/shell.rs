@@ -7,7 +7,7 @@ use std::{
 };
 
 use clap::Parser;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::{
     toolchain::{get_or_update_toolchain, parse_toolchain_name},
@@ -41,35 +41,33 @@ pub(super) fn shell(args: ShellCmd) {
         eprintln!("invalid toolchain name: {}", args.toolchain);
         process::exit(1);
     };
+    debug!(?toolchain);
 
-    debug!("toolchain override is {toolchain:?}");
+    let toolchain_path = get_or_update_toolchain(toolchain);
+    debug!(?toolchain_path);
 
-    let toolchain = get_or_update_toolchain(toolchain);
-
-    debug!("toolchain path is {}", toolchain.display());
-
-    let cmd = args
+    let command = args
         .cmd
         .or_else(|| env::var("SHELL").map(<_>::into).ok())
         .unwrap_or_else(|| {
             eprintln!("no shell specified: either `$SHELL` must be set or `--shell` must be used");
             process::exit(1);
         });
-
-    debug!("shell is {}", cmd.display());
+    debug!(?command);
 
     let path = env::var_os("PATH").unwrap_or(<_>::default());
+    trace!("old $PATH = {path:?}");
 
-    debug!("$PATH = {path:?}");
-
-    let path = toolchain
+    let path = toolchain_path
         .join("bin:")
         .into_os_string()
         .also(|s| s.push(path));
+    trace!("new $PATH = {path:?}");
 
-    debug!("new $PATH = {path:?}");
-
-    let error = Command::new(cmd).env("PATH", path).args(args.args).exec();
+    let error = Command::new(command)
+        .env("PATH", path)
+        .args(args.args)
+        .exec();
 
     eprintln!("couldn't start the shell: {error}");
     process::exit(1);
