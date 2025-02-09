@@ -1,6 +1,7 @@
 use std::fs;
 
 use clap::Subcommand;
+use color_eyre::eyre;
 use tracing::warn;
 
 use crate::toolchain::ToolchainOverride;
@@ -11,7 +12,7 @@ pub(super) enum ToolchainCmd {
     List,
 }
 
-pub(super) fn toolchain(args: ToolchainCmd) {
+pub(super) fn toolchain(args: ToolchainCmd) -> eyre::Result<()> {
     match args {
         ToolchainCmd::List {} => {
             let toolchains_dir = dirs::home_dir().unwrap().join(".rustdn/toolchains");
@@ -53,4 +54,6 @@ pub(super) fn toolchain(args: ToolchainCmd) {
             }
         }
     }
+
+    Ok(())
 }

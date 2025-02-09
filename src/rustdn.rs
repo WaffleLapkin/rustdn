@@ -1,6 +1,7 @@
 use std::env;
 
 use clap::Parser;
+use color_eyre::eyre;
 
 mod shell;
 mod toolchain;
@@ -32,7 +33,7 @@ enum Args {
 /// - A command to remove a toolchain from the nix cache?
 /// - ~~`check` - check for updates~~ Not sure about this one...
 ///
-pub(super) fn main(args: env::ArgsOs) {
+pub(super) fn main(args: env::ArgsOs) -> eyre::Result<()> {
     let args = Args::parse_from([std::ffi::OsString::from("rustdn")].into_iter().chain(args));
 
     match args {

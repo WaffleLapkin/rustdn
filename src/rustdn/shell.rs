@@ -1,12 +1,9 @@
 use std::{
-    env,
-    ffi::OsString,
-    os::unix::process::CommandExt as _,
-    path::PathBuf,
-    process::{self, Command},
+    env, ffi::OsString, os::unix::process::CommandExt as _, path::PathBuf, process::Command,
 };
 
 use clap::Parser;
+use color_eyre::eyre::{self, bail, Context, OptionExt};
 use tracing::{debug, trace};
 
 use crate::{
@@ -36,10 +33,9 @@ pub(super) struct ShellCmd {
     args: Vec<OsString>,
 }
 
-pub(super) fn shell(args: ShellCmd) {
+pub(super) fn shell(args: ShellCmd) -> eyre::Result<()> {
     let Ok(toolchain) = parse_toolchain_name(&args.toolchain) else {
-        eprintln!("invalid toolchain name: {}", args.toolchain);
-        process::exit(1);
+        bail!("invalid toolchain name: {}", args.toolchain)
     };
     debug!(?toolchain);
 
@@ -49,10 +45,7 @@ pub(super) fn shell(args: ShellCmd) {
     let command = args
         .cmd
         .or_else(|| env::var("SHELL").map(<_>::into).ok())
-        .unwrap_or_else(|| {
-            eprintln!("no shell specified: either `$SHELL` must be set or `--shell` must be used");
-            process::exit(1);
-        });
+        .ok_or_eyre("no shell specified: either `$SHELL` must be set or `--shell` must be used")?;
     debug!(?command);
 
     let path = env::var_os("PATH").unwrap_or(<_>::default());
@@ -69,6 +62,5 @@ pub(super) fn shell(args: ShellCmd) {
         .args(args.args)
         .exec();
 
-    eprintln!("couldn't start the shell: {error}");
-    process::exit(1);
+    Err(error).wrap_err("couldn't start the shell: {error}")
 }

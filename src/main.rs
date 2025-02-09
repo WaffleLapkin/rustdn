@@ -1,3 +1,4 @@
+use color_eyre::eyre::{self, Context};
 use tracing_subscriber::fmt::time::Uptime;
 
 mod lock;
@@ -9,10 +10,11 @@ mod unstd;
 // FIXME: add actual error handling
 // FIXME: meow meow meow mrrrmph~!
 
-fn main() {
+fn main() -> eyre::Result<()> {
     use std::{env, ffi::OsStr, path::Path};
 
-    setup_tracing();
+    color_eyre::install()?;
+    setup_tracing()?;
     tracing::trace!("meow");
 
     let mut args = env::args_os();
@@ -35,14 +37,14 @@ fn main() {
     }
 }
 
-fn setup_tracing() {
+fn setup_tracing() -> eyre::Result<()> {
     use tracing::level_filters::LevelFilter;
     use tracing_subscriber::{layer::SubscriberExt as _, EnvFilter, Layer as _, Registry};
 
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .parse(std::env::var("RUSTDN_LOG").as_deref().unwrap_or(""))
-        .expect("couldn't parse $RUSTDN_LOG");
+        .wrap_err("couldn't parse $RUSTDN_LOG")?;
 
     let console_logger = tracing_subscriber::fmt::layer()
         .with_writer(move || std::io::stderr())
@@ -53,5 +55,5 @@ fn setup_tracing() {
 
     let subscriber = Registry::default().with(console_logger);
 
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    tracing::subscriber::set_global_default(subscriber).wrap_err("couldn't set global logger")
 }

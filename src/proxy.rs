@@ -4,6 +4,7 @@ use std::{
     process::{Command, Stdio},
 };
 
+use color_eyre::eyre::Context;
 use tracing::{debug, trace};
 
 use crate::{
@@ -38,7 +39,7 @@ use crate::{
 ///
 /// [^1]: if the first argument in `args` starts with `+` it is treated as a toolchain override and
 ///       is not passed to the `bin`
-pub(super) fn main(bin: &str, mut args: env::ArgsOs) {
+pub(super) fn main(bin: &str, mut args: env::ArgsOs) -> Result<(), color_eyre::eyre::Error> {
     trace!("proxying {bin}");
 
     let toolchain_override_or_arg = args.next();
@@ -89,5 +90,5 @@ pub(super) fn main(bin: &str, mut args: env::ArgsOs) {
         .stdout(Stdio::inherit())
         .exec();
 
-    panic!("couldn't execute {bin_path:?}: {error}");
+    Err(error).wrap_err("couldn't execute {bin_path:?}: {error}")
 }

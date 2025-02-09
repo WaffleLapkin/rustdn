@@ -13,3 +13,4 @@ rustix = { version = "0.38.34", default-features = false, features = [
     "std",
 ] }
 clap = { version = "4.5.28", features = ["derive", "string"] }
+color-eyre = "0.6.3"
