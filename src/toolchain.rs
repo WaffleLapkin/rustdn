@@ -400,23 +400,26 @@ mod tests {
     #[test]
     fn smoke() {
         assert_eq!(parse_toolchain_override(None), Ok(None));
-        assert_eq!(parse_toolchain_override(Some("not-plus")), Ok(None));
         assert_eq!(
-            parse_toolchain_override(Some("+stable")),
+            parse_toolchain_override(Some("not-plus".as_ref())),
+            Ok(None)
+        );
+        assert_eq!(
+            parse_toolchain_override(Some("+stable".as_ref())),
             Ok(Some(ToolchainOverride::Version {
                 channel: Channel::Stable,
                 version: None
             }))
         );
         assert_eq!(
-            parse_toolchain_override(Some("+stable-")),
+            parse_toolchain_override(Some("+stable-".as_ref())),
             Ok(Some(ToolchainOverride::Version {
                 channel: Channel::Stable,
                 version: Some("".to_owned())
             }))
         );
         assert_eq!(
-            parse_toolchain_override(Some("+stable-1.78")),
+            parse_toolchain_override(Some("+stable-1.78".as_ref())),
             Ok(Some(ToolchainOverride::Version {
                 channel: Channel::Stable,
                 version: Some("1.78".to_owned())
