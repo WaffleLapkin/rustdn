@@ -25,6 +25,10 @@
           buildInputs = [
             (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
           ];
+
+          # enable debug logs in dev shell by default,
+          # it's nice to see what the code is doing :3
+          RUSTDN_LOG = "debug";
         };
       }
     );
